@@ -1,0 +1,18 @@
+[submodule "Eunyeong2-Lending"]
+	path = Eunyeong2-Lending
+	url = https://github.com/Eunyeong2/Lending
+[submodule "procfs-Lending"]
+	path = procfs-Lending
+	url = https://github.com/procfs-web3/practice_lending
+[submodule "LTaeng-Lending"]
+	path = LTaeng-Lending
+	url = https://github.com/LTaeng/Lending
+[submodule "wooz3k-Lending"]
+	path = wooz3k-Lending
+	url = https://github.com/dreamwooz3k/lending_protocol
+[submodule "rkdnd-Lending"]
+	path = rkdnd-Lending
+	url = https://github.com/rkdnd/lending
+[submodule "yunjin-Lending"]
+	path = yunjin-Lending
+	url = https://github.com/dh-yunjin/practice_DeFi
