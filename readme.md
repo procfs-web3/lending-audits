@@ -45,7 +45,7 @@ function borrow(address tokenAddress, uint256 amount) external payable { //대�
 ### 설명
 `withdraw`함수에서는 원리합계를 계산하여 이자 및 원금을 돌려준다. 원리합계를 계산하는 함수 `calcualte`에는 deposit시점의 timestamp가 인자로 들어가는데, 이는 매핑인 `mapping(address => uint256) public times`에서 읽어온다. 문제점은, `deposit` 시 `times`를 설정해 주지 않아 저 시작 timestamp가 0이 된다는 점이다. 따라서 lending service는 실제로 흐른 시간보다 훨씬 많은 시간이 흐른 것으로 계산하여 이자를 과대평가할 것이다. 
 
-`withdraw`코드에 은행의 잔고보다 많은 양을 인출하는 것을 방지하는 로직이 있기 때문에, 시작 timestamp를 0으로 하는 것은 withdraw amount를 과하게 키워 revert를 트리거할 가능성이 있다. 이 문제는 borrow` 함수로 `times`를 적절한 값으로 설정하는 과정으로 극복할 수 있다.
+`withdraw`코드에 은행의 잔고보다 많은 양을 인출하는 것을 방지하는 로직이 있기 때문에, 시작 timestamp를 0으로 하는 것은 withdraw amount를 과하게 키워 revert를 트리거할 가능성이 있다. 이 문제는 `borrow` 함수로 `times`를 적절한 값으로 설정하는 과정으로 극복할 수 있다.
 
 ### 파급력
 은행에서 실제 이자보다 더 많은 이자를 인출해 갈 수 있다. 또한, `deposit`시점에 timestamp를 저장하지 않는 것은 단순 실수라고 취급해도 `borrow`와 `times`를 공유하는 구조는 취약하므로 보안 취약점으로 구분짓는 것이 타당하다. 따라서, 파급력은 **High**로 평가했다. 
@@ -127,7 +127,7 @@ function testExploit() public {
     uint aBalAfter = aUSDCToken.balanceOf(alice);
     console.log(aBalAfter - aBalBefore);
     lending.withdraw(address(aUSDCToken), 100 ether);
-    }
+}
 ```
 
 ### 파급력
